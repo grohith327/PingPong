@@ -67,14 +67,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut request_body = String::from("{key: value}");
     let mut response = String::from("{key: value}");
 
-    let mut dropdown = Dropdown::new(vec![
+    let mut request_type_dropdown = Dropdown::new(vec![
         "POST".to_string(),
         "GET".to_string(),
         "PUT".to_string(),
         "UPDATE".to_string(),
         "DELETE".to_string(),
     ]);
-    let mut dropdown_val = String::from("");
+    let mut request_type_val = String::from("GET");
 
     loop {
         terminal.draw(|frame| {
@@ -82,14 +82,18 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 .direction(Direction::Vertical)
                 .constraints(
                     [
-                        Constraint::Percentage(10),
-                        Constraint::Percentage(10),
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(40),
+                        Constraint::Percentage(7),
+                        Constraint::Percentage(46),
+                        Constraint::Percentage(46),
                     ]
                     .as_ref(),
                 )
                 .split(frame.area());
+
+            let horizontal_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+                .split(chunks[0]);
 
             let url_block = Paragraph::new(Span::styled(&url, Style::default().fg(Color::White)))
                 .block(
@@ -103,16 +107,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         )
                         .border_style(Style::default().fg(Color::LightBlue)),
                 );
-
-            let request_type_block = Block::default()
-                .borders(Borders::ALL)
-                .title("Request Type")
-                .title_style(
-                    Style::default()
-                        .fg(Color::LightYellow)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .border_style(Style::default().fg(Color::LightBlue));
 
             let request_body_block = Paragraph::new(Span::styled(
                 &request_body,
@@ -142,8 +136,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         .border_style(Style::default().fg(Color::LightBlue)),
                 );
 
-            if dropdown.open {
-                let items: Vec<ListItem> = dropdown
+            if request_type_dropdown.open {
+                let items: Vec<ListItem> = request_type_dropdown
                     .items
                     .iter()
                     .map(|item| ListItem::new(Span::raw(item.clone())))
@@ -153,10 +147,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     .block(Block::default().borders(Borders::ALL).title("Request Type"))
                     .highlight_style(Style::default().fg(Color::Yellow));
 
-                frame.render_stateful_widget(list, chunks[1], &mut dropdown.state);
+                frame.render_stateful_widget(
+                    list,
+                    horizontal_chunks[0],
+                    &mut request_type_dropdown.state,
+                );
             } else {
                 let selected_request_type = Paragraph::new(Span::styled(
-                    &dropdown_val,
+                    &request_type_val,
                     Style::default().fg(Color::White),
                 ))
                 .block(
@@ -171,33 +169,32 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         .border_style(Style::default().fg(Color::LightBlue)),
                 );
 
-                frame.render_widget(selected_request_type, chunks[1]);
+                frame.render_widget(selected_request_type, horizontal_chunks[0]);
             }
 
-            frame.render_widget(url_block, chunks[0]);
-            frame.render_widget(request_type_block, chunks[1]);
-            frame.render_widget(request_body_block, chunks[2]);
-            frame.render_widget(response_block, chunks[3]);
+            frame.render_widget(url_block, horizontal_chunks[1]);
+            frame.render_widget(request_body_block, chunks[1]);
+            frame.render_widget(response_block, chunks[2]);
         })?;
 
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(key) = event::read()? {
                 match key.code {
-                    KeyCode::Char(' ') => dropdown.toggle(),
-                    KeyCode::Down => dropdown.next(),
-                    KeyCode::Up => dropdown.previous(),
+                    KeyCode::Char(' ') => request_type_dropdown.toggle(),
+                    KeyCode::Down => request_type_dropdown.next(),
+                    KeyCode::Up => request_type_dropdown.previous(),
                     KeyCode::Enter => {
-                        if dropdown.open {
-                            if let Some(i) = dropdown.state.selected() {
-                                dropdown_val = dropdown.items[i].clone();
+                        if request_type_dropdown.open {
+                            if let Some(i) = request_type_dropdown.state.selected() {
+                                request_type_val = request_type_dropdown.items[i].clone();
                             }
-                            dropdown.toggle();
+                            request_type_dropdown.toggle();
                         }
                     }
                     KeyCode::Char('q') => break,
                     KeyCode::Esc => {
-                        if dropdown.open {
-                            dropdown.toggle();
+                        if request_type_dropdown.open {
+                            request_type_dropdown.toggle();
                         } else {
                             break;
                         }
