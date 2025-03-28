@@ -4,7 +4,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{prelude::*, widgets::*};
-use std::{io, time::Duration};
+use std::{cmp, io, time::Duration};
 
 struct Dropdown {
     items: Vec<String>,
@@ -63,13 +63,16 @@ fn main() -> io::Result<()> {
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut url = String::from("https://google.com");
-    let mut request_body = String::from("{key: value}");
-    let mut response = String::from("{key: value}");
+    let mut url = String::from("<Enter URL here>");
+    let mut request_body = String::from("<Provide request body if applicable>");
+    let mut response = String::from("");
+
+    let mut active_chunk: usize = 0;
+    let chunk_size = 4;
 
     let mut request_type_dropdown = Dropdown::new(vec![
-        "POST".to_string(),
         "GET".to_string(),
+        "POST".to_string(),
         "PUT".to_string(),
         "UPDATE".to_string(),
         "DELETE".to_string(),
@@ -105,7 +108,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .fg(Color::LightYellow)
                                 .add_modifier(Modifier::BOLD),
                         )
-                        .border_style(Style::default().fg(Color::LightBlue)),
+                        .border_style(if active_chunk == 1 {
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::LightBlue)
+                        }),
                 );
 
             let request_body_block = Paragraph::new(Span::styled(
@@ -121,7 +130,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             .fg(Color::LightYellow)
                             .add_modifier(Modifier::BOLD),
                     )
-                    .border_style(Style::default().fg(Color::LightBlue)),
+                    .border_style(if active_chunk == 2 {
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::LightBlue)
+                    }),
             );
             let response_block =
                 Paragraph::new(Span::styled(&response, Style::default().fg(Color::White))).block(
@@ -133,7 +148,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .fg(Color::LightYellow)
                                 .add_modifier(Modifier::BOLD),
                         )
-                        .border_style(Style::default().fg(Color::LightBlue)),
+                        .border_style(if active_chunk == 3 {
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::LightBlue)
+                        }),
                 );
 
             if request_type_dropdown.open {
@@ -166,7 +187,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 .fg(Color::LightYellow)
                                 .add_modifier(Modifier::BOLD),
                         )
-                        .border_style(Style::default().fg(Color::LightBlue)),
+                        .border_style(if active_chunk == 0 {
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::LightBlue)
+                        }),
                 );
 
                 frame.render_widget(selected_request_type, horizontal_chunks[0]);
@@ -181,8 +208,24 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             if let event::Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char(' ') => request_type_dropdown.toggle(),
-                    KeyCode::Down => request_type_dropdown.next(),
-                    KeyCode::Up => request_type_dropdown.previous(),
+                    KeyCode::Down | KeyCode::Right => {
+                        if request_type_dropdown.open {
+                            request_type_dropdown.next();
+                        } else {
+                            active_chunk = cmp::min(active_chunk + 1, chunk_size - 1);
+                        }
+                    }
+                    KeyCode::Up | KeyCode::Left => {
+                        if request_type_dropdown.open {
+                            request_type_dropdown.previous();
+                        } else {
+                            active_chunk = if active_chunk == 0 {
+                                0
+                            } else {
+                                active_chunk - 1
+                            }
+                        }
+                    }
                     KeyCode::Enter => {
                         if request_type_dropdown.open {
                             if let Some(i) = request_type_dropdown.state.selected() {
