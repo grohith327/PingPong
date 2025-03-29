@@ -50,6 +50,32 @@ impl Dropdown {
     }
 }
 
+struct DisplayString {
+    value: String,
+    edit_mode: bool,
+}
+
+impl DisplayString {
+    fn new(value: String) -> Self {
+        Self {
+            value: value,
+            edit_mode: false,
+        }
+    }
+
+    fn add_char(&mut self, ch: char) {
+        self.value.push(ch);
+    }
+
+    fn remove_last_char(&mut self) {
+        self.value.pop();
+    }
+
+    fn toggle_mode(&mut self) {
+        self.edit_mode = !self.edit_mode;
+    }
+}
+
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -63,8 +89,8 @@ fn main() -> io::Result<()> {
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut url = String::from("<Enter URL here>");
-    let mut request_body = String::from("<Provide request body if applicable>");
+    let mut url = DisplayString::new("<Enter URL here>".to_string());
+    let mut request_body = DisplayString::new("<Provide request body if applicable>".to_string());
     let mut response = String::from("");
 
     let mut active_chunk: usize = 0;
@@ -98,8 +124,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
                 .split(chunks[0]);
 
-            let url_block = Paragraph::new(Span::styled(&url, Style::default().fg(Color::White)))
-                .block(
+            let url_block =
+                Paragraph::new(Span::styled(&url.value, Style::default().fg(Color::White))).block(
                     Block::default()
                         .borders(Borders::ALL)
                         .title("URL")
@@ -118,7 +144,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 );
 
             let request_body_block = Paragraph::new(Span::styled(
-                &request_body,
+                &request_body.value,
                 Style::default().fg(Color::White),
             ))
             .block(
@@ -207,14 +233,46 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(key) = event::read()? {
                 match key.code {
-                    KeyCode::Char(' ') => {
-                        if active_chunk == 0 {
-                            request_type_dropdown.toggle()
+                    KeyCode::Char(c) => {
+                        if url.edit_mode {
+                            url.add_char(c);
+                        }
+
+                        if request_body.edit_mode {
+                            request_body.add_char(c);
+                        }
+
+                        if c == ' ' {
+                            if active_chunk == 0 {
+                                request_type_dropdown.toggle()
+                            }
+
+                            if active_chunk == 1 && !url.edit_mode {
+                                url.toggle_mode();
+                            }
+
+                            if active_chunk == 2 && !request_body.edit_mode {
+                                request_body.toggle_mode();
+                            }
+                        }
+
+                        if c == 'q' {
+                            break;
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        if url.edit_mode {
+                            url.remove_last_char();
+                        }
+
+                        if request_body.edit_mode {
+                            request_body.remove_last_char();
                         }
                     }
                     KeyCode::Down | KeyCode::Right => {
                         if request_type_dropdown.open {
                             request_type_dropdown.next();
+                        } else if url.edit_mode || request_body.edit_mode {
                         } else {
                             active_chunk = cmp::min(active_chunk + 1, chunk_size - 1);
                         }
@@ -222,6 +280,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     KeyCode::Up | KeyCode::Left => {
                         if request_type_dropdown.open {
                             request_type_dropdown.previous();
+                        } else if url.edit_mode || request_body.edit_mode {
                         } else {
                             active_chunk = if active_chunk == 0 {
                                 0
@@ -236,6 +295,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                 request_type_val = request_type_dropdown.items[i].clone();
                             }
                             request_type_dropdown.toggle();
+                        }
+
+                        if url.edit_mode {
+                            url.toggle_mode();
+                        }
+
+                        if request_body.edit_mode {
+                            request_body.toggle_mode();
                         }
                     }
                     KeyCode::Char('q') => break,
