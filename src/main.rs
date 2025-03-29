@@ -94,7 +94,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut response = String::from("");
 
     let mut active_chunk: usize = 0;
-    let chunk_size = 4;
+    let chunk_size = 5;
 
     let mut request_type_dropdown = Dropdown::new(vec![
         "GET".to_string(),
@@ -112,8 +112,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 .constraints(
                     [
                         Constraint::Percentage(7),
-                        Constraint::Percentage(46),
-                        Constraint::Percentage(46),
+                        Constraint::Percentage(45),
+                        Constraint::Percentage(45),
+                        Constraint::Percentage(2),
                     ]
                     .as_ref(),
                 )
@@ -259,9 +260,16 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 frame.render_widget(selected_request_type, horizontal_chunks[0]);
             }
 
+            let status_bar = Paragraph::new(Span::styled(
+                "[e] Edit [enter] Save [r] Request [q] Quit",
+                Style::default().bg(Color::Green).fg(Color::Black),
+            ))
+            .block(Block::default().bg(Color::Green).borders(Borders::NONE));
+
             frame.render_widget(url_block, horizontal_chunks[1]);
             frame.render_widget(request_body_block, chunks[1]);
             frame.render_widget(response_block, chunks[2]);
+            frame.render_widget(status_bar, chunks[3]);
         })?;
 
         if event::poll(Duration::from_millis(100))? {
@@ -276,7 +284,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             request_body.add_char(c);
                         }
 
-                        if c == ' ' {
+                        if c == 'e' {
                             if active_chunk == 0 {
                                 request_type_dropdown.toggle()
                             }
@@ -308,7 +316,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             request_type_dropdown.next();
                         } else if url.edit_mode || request_body.edit_mode {
                         } else {
-                            active_chunk = cmp::min(active_chunk + 1, chunk_size - 1);
+                            active_chunk = cmp::min(active_chunk + 1, chunk_size - 2);
                         }
                     }
                     KeyCode::Up | KeyCode::Left => {
