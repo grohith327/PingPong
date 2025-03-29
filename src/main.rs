@@ -124,27 +124,40 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
                 .split(chunks[0]);
 
-            let url_block =
-                Paragraph::new(Span::styled(&url.value, Style::default().fg(Color::White))).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("URL")
-                        .title_style(
-                            Style::default()
-                                .fg(Color::LightYellow)
-                                .add_modifier(Modifier::BOLD),
-                        )
-                        .border_style(if active_chunk == 1 {
-                            Style::default()
-                                .fg(Color::White)
-                                .add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::default().fg(Color::LightBlue)
-                        }),
-                );
+            let url_display_string = if url.edit_mode {
+                format!("{}█", url.value)
+            } else {
+                url.value.clone()
+            };
+            let url_block = Paragraph::new(Span::styled(
+                &url_display_string,
+                Style::default().fg(Color::White),
+            ))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("URL")
+                    .title_style(
+                        Style::default()
+                            .fg(Color::LightYellow)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .border_style(if active_chunk == 1 {
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::LightBlue)
+                    }),
+            );
 
+            let request_body_display_string = if request_body.edit_mode {
+                format!("{}█", request_body.value)
+            } else {
+                request_body.value.clone()
+            };
             let request_body_block = Paragraph::new(Span::styled(
-                &request_body.value,
+                &request_body_display_string,
                 Style::default().fg(Color::White),
             ))
             .block(
@@ -305,7 +318,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             request_body.toggle_mode();
                         }
                     }
-                    KeyCode::Char('q') => break,
                     KeyCode::Esc => {
                         if request_type_dropdown.open && active_chunk == 0 {
                             request_type_dropdown.toggle();
