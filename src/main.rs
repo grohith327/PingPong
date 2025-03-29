@@ -4,6 +4,8 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{prelude::*, widgets::*};
+use reqwest::Error;
+use reqwest::blocking::get;
 use std::{cmp, io, time::Duration};
 
 struct Dropdown {
@@ -71,6 +73,10 @@ impl DisplayString {
         self.value.pop();
     }
 
+    fn update_value(&mut self, value: String) {
+        self.value = value;
+    }
+
     fn toggle_mode(&mut self) {
         self.edit_mode = !self.edit_mode;
     }
@@ -89,9 +95,12 @@ fn main() -> io::Result<()> {
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let mut url = DisplayString::new("<Enter URL here>".to_string());
-    let mut request_body = DisplayString::new("<Provide request body if applicable>".to_string());
-    let mut response = String::from("");
+    let placeholder_url_value = "<Enter URL here>";
+    let placeholder_request_body = "<Provide request body if applicable>";
+
+    let mut url = DisplayString::new(placeholder_url_value.to_string());
+    let mut request_body = DisplayString::new(placeholder_request_body.to_string());
+    let mut response = DisplayString::new("".to_string());
 
     let mut active_chunk: usize = 0;
     let chunk_size = 5;
@@ -173,6 +182,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 &request_body_display_string,
                 Style::default().fg(Color::White),
             ))
+            .wrap(Wrap { trim: true })
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -190,24 +200,28 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         Style::default().fg(Color::LightBlue)
                     }),
             );
-            let response_block =
-                Paragraph::new(Span::styled(&response, Style::default().fg(Color::White))).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Response")
-                        .title_style(
-                            Style::default()
-                                .fg(Color::LightYellow)
-                                .add_modifier(Modifier::BOLD),
-                        )
-                        .border_style(if active_chunk == 3 {
-                            Style::default()
-                                .fg(Color::White)
-                                .add_modifier(Modifier::BOLD)
-                        } else {
-                            Style::default().fg(Color::LightBlue)
-                        }),
-                );
+            let response_block = Paragraph::new(Span::styled(
+                &response.value,
+                Style::default().fg(Color::White),
+            ))
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Response")
+                    .title_style(
+                        Style::default()
+                            .fg(Color::LightYellow)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .border_style(if active_chunk == 3 {
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::LightBlue)
+                    }),
+            );
 
             let request_type_block_title = if request_type_dropdown.open {
                 "Request Type - editing"
@@ -261,7 +275,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             }
 
             let status_bar = Paragraph::new(Span::styled(
-                "[e] Edit [enter] Save [r] Request [q] Quit",
+                "[e] Edit [enter] Save [Esc] Exit edit mode [r] Request [q] Quit",
                 Style::default().bg(Color::Green).fg(Color::Black),
             ))
             .block(Block::default().bg(Color::Green).borders(Borders::NONE));
@@ -291,10 +305,27 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
                             if active_chunk == 1 && !url.edit_mode {
                                 url.toggle_mode();
+                                if url.value == placeholder_url_value {
+                                    url.update_value(String::from(""));
+                                }
                             }
 
                             if active_chunk == 2 && !request_body.edit_mode {
                                 request_body.toggle_mode();
+                                if request_body.value == placeholder_request_body {
+                                    request_body.update_value(String::from(""));
+                                }
+                            }
+                        }
+
+                        if c == 'r' {
+                            // TODO: Add validation on body and url, add https to the url if not present
+                            let res = get(url.value.clone()).unwrap();
+
+                            if res.status().is_success() {
+                                response.update_value(res.text().unwrap());
+                            } else {
+                                panic!("Received error from request")
                             }
                         }
 
