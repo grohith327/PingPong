@@ -207,7 +207,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         if event::poll(Duration::from_millis(100))? {
             if let event::Event::Key(key) = event::read()? {
                 match key.code {
-                    KeyCode::Char(' ') => request_type_dropdown.toggle(),
+                    KeyCode::Char(' ') => {
+                        if active_chunk == 0 {
+                            request_type_dropdown.toggle()
+                        }
+                    }
                     KeyCode::Down | KeyCode::Right => {
                         if request_type_dropdown.open {
                             request_type_dropdown.next();
@@ -236,10 +240,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     }
                     KeyCode::Char('q') => break,
                     KeyCode::Esc => {
-                        if request_type_dropdown.open {
+                        if request_type_dropdown.open && active_chunk == 0 {
                             request_type_dropdown.toggle();
-                        } else {
-                            break;
                         }
                     }
                     _ => {}
