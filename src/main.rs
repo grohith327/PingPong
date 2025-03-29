@@ -129,6 +129,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             } else {
                 url.value.clone()
             };
+
+            let url_block_title = if url.edit_mode {
+                "Request URL - editing"
+            } else {
+                "Request URL"
+            };
             let url_block = Paragraph::new(Span::styled(
                 &url_display_string,
                 Style::default().fg(Color::White),
@@ -136,7 +142,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("URL")
+                    .title(url_block_title)
                     .title_style(
                         Style::default()
                             .fg(Color::LightYellow)
@@ -156,6 +162,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             } else {
                 request_body.value.clone()
             };
+
+            let request_body_block_title = if request_body.edit_mode {
+                "Request Body - editing"
+            } else {
+                "Request Body"
+            };
             let request_body_block = Paragraph::new(Span::styled(
                 &request_body_display_string,
                 Style::default().fg(Color::White),
@@ -163,7 +175,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Body")
+                    .title(request_body_block_title)
                     .title_style(
                         Style::default()
                             .fg(Color::LightYellow)
@@ -196,6 +208,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         }),
                 );
 
+            let request_type_block_title = if request_type_dropdown.open {
+                "Request Type - editing"
+            } else {
+                "Request Type"
+            };
             if request_type_dropdown.open {
                 let items: Vec<ListItem> = request_type_dropdown
                     .items
@@ -204,7 +221,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     .collect();
 
                 let list = List::new(items)
-                    .block(Block::default().borders(Borders::ALL).title("Request Type"))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(request_type_block_title),
+                    )
                     .highlight_style(Style::default().fg(Color::Yellow));
 
                 frame.render_stateful_widget(
@@ -220,7 +241,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title("Request Type")
+                        .title(request_type_block_title)
                         .title_style(
                             Style::default()
                                 .fg(Color::LightYellow)
