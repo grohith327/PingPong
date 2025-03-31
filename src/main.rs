@@ -4,9 +4,10 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{prelude::*, widgets::*};
-use reqwest::Error;
-use reqwest::blocking::get;
-use std::{cmp, io, time::Duration};
+use reqwest::blocking::Client;
+use std::{cmp, fmt, io, time::Duration};
+use strum::IntoEnumIterator;
+use strum_macros::{EnumIter, EnumString};
 
 struct Dropdown {
     items: Vec<String>,
@@ -82,6 +83,36 @@ impl DisplayString {
     }
 }
 
+#[derive(EnumIter, EnumString)]
+enum RequestType {
+    GET,
+    POST,
+    PUT,
+    PATCH,
+    DELETE,
+}
+
+impl fmt::Display for RequestType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let request_type = match self {
+            RequestType::GET => "GET",
+            RequestType::POST => "POST",
+            RequestType::PUT => "PUT",
+            RequestType::PATCH => "PATCH",
+            RequestType::DELETE => "DELETE",
+        };
+        write!(f, "{}", request_type)
+    }
+}
+
+fn parse_into_https(url: &str) -> String {
+    if url.starts_with("http") || url.starts_with("https") {
+        return url.to_string();
+    }
+
+    format!("https://{}", url)
+}
+
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -102,36 +133,34 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     let mut request_body = DisplayString::new(placeholder_request_body.to_string());
     let mut response = DisplayString::new("".to_string());
 
-    let mut active_chunk: usize = 0;
-    let chunk_size = 5;
+    let vertical_constraints = [
+        Constraint::Percentage(7),
+        Constraint::Percentage(45),
+        Constraint::Percentage(45),
+        Constraint::Percentage(2),
+    ];
+    let _ = parse_into_https("www.google.com");
 
-    let mut request_type_dropdown = Dropdown::new(vec![
-        "GET".to_string(),
-        "POST".to_string(),
-        "PUT".to_string(),
-        "UPDATE".to_string(),
-        "DELETE".to_string(),
-    ]);
-    let mut request_type_val = String::from("GET");
+    let horizontal_constraints = [Constraint::Percentage(30), Constraint::Percentage(70)];
+
+    let mut active_chunk: usize = 0;
+    let chunk_size = vertical_constraints.len() + 1; // Add one for status bar
+
+    let request_types = RequestType::iter().map(|r| r.to_string()).collect();
+    let mut request_type_dropdown = Dropdown::new(request_types);
+    let mut request_type_val = String::from(RequestType::GET.to_string());
+    let client = Client::new();
 
     loop {
         terminal.draw(|frame| {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(7),
-                        Constraint::Percentage(45),
-                        Constraint::Percentage(45),
-                        Constraint::Percentage(2),
-                    ]
-                    .as_ref(),
-                )
+                .constraints(vertical_constraints.as_ref())
                 .split(frame.area());
 
             let horizontal_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+                .constraints(horizontal_constraints.as_ref())
                 .split(chunks[0]);
 
             let url_display_string = if url.edit_mode {
@@ -319,8 +348,31 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         }
 
                         if c == 'r' {
-                            // TODO: Add validation on body and url, add https to the url if not present
-                            let res = get(url.value.clone()).unwrap();
+                            // TODO: Add validation on body and url
+                            let url_path = parse_into_https(&url.value);
+                            let res = match request_type_val.parse::<RequestType>().unwrap() {
+                                RequestType::GET => client.get(url_path).send().unwrap(),
+                                RequestType::POST => client
+                                    .post(url_path)
+                                    .body(request_body.value.clone())
+                                    .send()
+                                    .unwrap(),
+                                RequestType::PUT => client
+                                    .put(url_path)
+                                    .body(request_body.value.clone())
+                                    .send()
+                                    .unwrap(),
+                                RequestType::PATCH => client
+                                    .patch(url_path)
+                                    .body(request_body.value.clone())
+                                    .send()
+                                    .unwrap(),
+                                RequestType::DELETE => client
+                                    .delete(url_path)
+                                    .body(request_body.value.clone())
+                                    .send()
+                                    .unwrap(),
+                            };
 
                             if res.status().is_success() {
                                 response.update_value(res.text().unwrap());
