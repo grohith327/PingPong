@@ -139,7 +139,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         Constraint::Percentage(45),
         Constraint::Percentage(2),
     ];
-    let _ = parse_into_https("www.google.com");
 
     let horizontal_constraints = [Constraint::Percentage(30), Constraint::Percentage(70)];
 
@@ -304,7 +303,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             }
 
             let status_bar = Paragraph::new(Span::styled(
-                "[e] Edit [enter] Save [Esc] Exit edit mode [r] Request [q] Quit",
+                "[e] Edit [enter] Save/Exit edit mode [r] Request [q] Quit",
                 Style::default().bg(Color::Green).fg(Color::Black),
             ))
             .block(Block::default().bg(Color::Green).borders(Borders::NONE));
@@ -347,28 +346,35 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             }
                         }
 
-                        if c == 'r' {
-                            // TODO: Add validation on body and url
+                        if c == 'r'
+                            && !url.edit_mode
+                            && !request_body.edit_mode
+                            && !request_type_dropdown.open
+                        {
                             let url_path = parse_into_https(&url.value);
                             let res = match request_type_val.parse::<RequestType>().unwrap() {
                                 RequestType::GET => client.get(url_path).send().unwrap(),
                                 RequestType::POST => client
                                     .post(url_path)
+                                    .header("Content-Type", "application/json")
                                     .body(request_body.value.clone())
                                     .send()
                                     .unwrap(),
                                 RequestType::PUT => client
                                     .put(url_path)
+                                    .header("Content-Type", "application/json")
                                     .body(request_body.value.clone())
                                     .send()
                                     .unwrap(),
                                 RequestType::PATCH => client
                                     .patch(url_path)
+                                    .header("Content-Type", "application/json")
                                     .body(request_body.value.clone())
                                     .send()
                                     .unwrap(),
                                 RequestType::DELETE => client
                                     .delete(url_path)
+                                    .header("Content-Type", "application/json")
                                     .body(request_body.value.clone())
                                     .send()
                                     .unwrap(),
@@ -414,7 +420,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             }
                         }
                     }
-                    KeyCode::Enter => {
+                    KeyCode::Enter | KeyCode::Esc => {
                         if request_type_dropdown.open {
                             if let Some(i) = request_type_dropdown.state.selected() {
                                 request_type_val = request_type_dropdown.items[i].clone();
@@ -428,11 +434,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
                         if request_body.edit_mode {
                             request_body.toggle_mode();
-                        }
-                    }
-                    KeyCode::Esc => {
-                        if request_type_dropdown.open && active_chunk == 0 {
-                            request_type_dropdown.toggle();
                         }
                     }
                     _ => {}
