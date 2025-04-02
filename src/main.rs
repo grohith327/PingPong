@@ -5,7 +5,12 @@ use crossterm::{
 };
 use ratatui::{prelude::*, widgets::*};
 use reqwest::blocking::Client;
-use std::{cmp, fmt, io, time::Duration};
+use std::{
+    cmp,
+    fmt::{self},
+    io,
+    time::Duration,
+};
 use strum::IntoEnumIterator;
 use strum_macros::{EnumIter, EnumString};
 
@@ -353,7 +358,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         {
                             let url_path = parse_into_https(&url.value);
                             let res = match request_type_val.parse::<RequestType>().unwrap() {
-                                RequestType::GET => client.get(url_path).send().unwrap(),
+                                RequestType::GET => client.get(url_path).send(),
                                 RequestType::POST => {
                                     if !request_body.value.contains(placeholder_request_body) {
                                         client
@@ -361,9 +366,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                             .header("Content-Type", "application/json")
                                             .body(request_body.value.clone())
                                             .send()
-                                            .unwrap()
                                     } else {
-                                        client.post(&url_path).send().unwrap()
+                                        client.post(&url_path).send()
                                     }
                                 }
                                 RequestType::PUT => {
@@ -373,9 +377,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                             .header("content-type", "application/json")
                                             .body(request_body.value.clone())
                                             .send()
-                                            .unwrap()
                                     } else {
-                                        client.put(&url_path).send().unwrap()
+                                        client.put(&url_path).send()
                                     }
                                 }
                                 RequestType::PATCH => {
@@ -385,9 +388,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                             .header("content-type", "application/json")
                                             .body(request_body.value.clone())
                                             .send()
-                                            .unwrap()
                                     } else {
-                                        client.patch(&url_path).send().unwrap()
+                                        client.patch(&url_path).send()
                                     }
                                 }
                                 RequestType::DELETE => {
@@ -397,17 +399,30 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                             .header("content-type", "application/json")
                                             .body(request_body.value.clone())
                                             .send()
-                                            .unwrap()
                                     } else {
-                                        client.delete(&url_path).send().unwrap()
+                                        client.delete(&url_path).send()
                                     }
                                 }
                             };
 
-                            if res.status().is_success() {
-                                response.update_value(res.text().unwrap());
-                            } else {
-                                panic!("Received error from request")
+                            match res {
+                                Ok(output) => {
+                                    if output.status().is_success() {
+                                        response.update_value(output.text().unwrap());
+                                    } else {
+                                        response.update_value(format!(
+                                            "Status code: {}, Error message: {}",
+                                            output.status(),
+                                            output
+                                                .text()
+                                                .unwrap_or_else(|_| "No response body".to_string()),
+                                        ));
+                                    }
+                                }
+                                Err(e) => {
+                                    response
+                                        .update_value(format!("Error while making request: {}", e));
+                                }
                             }
                         }
 

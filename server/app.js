@@ -15,11 +15,18 @@ const server = serve({
 
     if (req.method == "POST") {
       const body = await req.json();
-      console.log(`POST Request Body: ${JSON.stringify(body)}`);
-      return new Response(
-        JSON.stringify({ ...response, message: "Successful POST request" }),
-        { status: 200 },
-      );
+      const bodyJson = JSON.stringify(body);
+      console.log(`POST Request Body: ${bodyJson}`);
+      if (body.hello === "world") {
+        return new Response(
+          JSON.stringify({ ...response, message: "Successful POST request" }),
+          { status: 200 },
+        );
+      } else {
+        return new Response(
+          JSON.stringify({ errorMessage: "Invalid Request" }, { status: 400 }),
+        );
+      }
     }
 
     if (req.method == "PATCH") {
