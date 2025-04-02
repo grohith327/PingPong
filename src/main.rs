@@ -4,11 +4,16 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{prelude::*, widgets::*};
-use reqwest::blocking::Client;
+use reqwest::{
+    blocking::Client,
+    header::{HeaderMap, HeaderName, HeaderValue},
+};
 use std::{
     cmp,
+    collections::HashMap,
     fmt::{self},
     io,
+    str::FromStr,
     time::Duration,
 };
 use strum::IntoEnumIterator;
@@ -115,7 +120,21 @@ fn parse_into_https(url: &str) -> String {
         return url.to_string();
     }
 
+    if url.contains("localhost") {
+        return format!("http://{}", url);
+    }
+
     format!("https://{}", url)
+}
+
+fn build_headers(headers: &str) -> Result<HeaderMap, Box<dyn std::error::Error>> {
+    let map: HashMap<String, String> = serde_json::from_str(headers)?;
+    let mut out = HeaderMap::new();
+    for (key, value) in map {
+        out.insert(HeaderName::from_str(&key)?, HeaderValue::from_str(&value)?);
+    }
+
+    Ok(out)
 }
 
 fn main() -> io::Result<()> {
@@ -133,10 +152,12 @@ fn main() -> io::Result<()> {
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let placeholder_url_value = "<Enter URL here>";
     let placeholder_request_body = "<Provide request body if applicable>";
+    let placeholder_header = r#"{"content-type": "application/json"}"#;
 
     let mut url = DisplayString::new(placeholder_url_value.to_string());
     let mut request_body = DisplayString::new(placeholder_request_body.to_string());
     let mut response = DisplayString::new("".to_string());
+    let mut headers = DisplayString::new(placeholder_header.to_string());
 
     let vertical_constraints = [
         Constraint::Percentage(7),
@@ -145,11 +166,11 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         Constraint::Percentage(2),
     ];
 
-    let horizontal_constraints = [Constraint::Percentage(30), Constraint::Percentage(70)];
+    let request_horizontal_constraints = [Constraint::Percentage(25), Constraint::Percentage(75)];
+    let body_horizontal_contraints = [Constraint::Percentage(50), Constraint::Percentage(50)];
 
     let mut active_chunk: usize = 0;
-    let chunk_size = vertical_constraints.len() + 1; // Add one for status bar
-
+    let chunk_size = 5;
     let request_types = RequestType::iter().map(|r| r.to_string()).collect();
     let mut request_type_dropdown = Dropdown::new(request_types);
     let mut request_type_val = String::from(RequestType::GET.to_string());
@@ -162,10 +183,15 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 .constraints(vertical_constraints.as_ref())
                 .split(frame.area());
 
-            let horizontal_chunks = Layout::default()
+            let request_horizontal_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints(horizontal_constraints.as_ref())
+                .constraints(request_horizontal_constraints.as_ref())
                 .split(chunks[0]);
+
+            let body_horizontal_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(body_horizontal_contraints)
+                .split(chunks[1]);
 
             let url_display_string = if url.edit_mode {
                 format!("{}█", url.value)
@@ -233,6 +259,41 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         Style::default().fg(Color::LightBlue)
                     }),
             );
+
+            let headers_display_string = if headers.edit_mode {
+                format!("{}█", headers.value)
+            } else {
+                headers.value.clone()
+            };
+
+            let headers_block_title = if headers.edit_mode {
+                "Request Body - editing"
+            } else {
+                "Request Body"
+            };
+            let headers_body_block = Paragraph::new(Span::styled(
+                &headers_display_string,
+                Style::default().fg(Color::White),
+            ))
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(headers_block_title)
+                    .title_style(
+                        Style::default()
+                            .fg(Color::LightYellow)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .border_style(if active_chunk == 3 {
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::LightBlue)
+                    }),
+            );
+
             let response_block = Paragraph::new(Span::styled(
                 &response.value,
                 Style::default().fg(Color::White),
@@ -247,7 +308,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             .fg(Color::LightYellow)
                             .add_modifier(Modifier::BOLD),
                     )
-                    .border_style(if active_chunk == 3 {
+                    .border_style(if active_chunk == 4 {
                         Style::default()
                             .fg(Color::White)
                             .add_modifier(Modifier::BOLD)
@@ -278,7 +339,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
                 frame.render_stateful_widget(
                     list,
-                    horizontal_chunks[0],
+                    request_horizontal_chunks[0],
                     &mut request_type_dropdown.state,
                 );
             } else {
@@ -304,7 +365,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         }),
                 );
 
-                frame.render_widget(selected_request_type, horizontal_chunks[0]);
+                frame.render_widget(selected_request_type, request_horizontal_chunks[0]);
             }
 
             let status_bar = Paragraph::new(Span::styled(
@@ -313,8 +374,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             ))
             .block(Block::default().bg(Color::Green).borders(Borders::NONE));
 
-            frame.render_widget(url_block, horizontal_chunks[1]);
-            frame.render_widget(request_body_block, chunks[1]);
+            frame.render_widget(url_block, request_horizontal_chunks[1]);
+            frame.render_widget(request_body_block, body_horizontal_chunks[0]);
+            frame.render_widget(headers_body_block, body_horizontal_chunks[1]);
             frame.render_widget(response_block, chunks[2]);
             frame.render_widget(status_bar, chunks[3]);
         })?;
@@ -329,6 +391,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
                         if request_body.edit_mode {
                             request_body.add_char(c);
+                        }
+
+                        if headers.edit_mode {
+                            headers.add_char(c);
                         }
 
                         if c == 'e' {
@@ -349,6 +415,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                                     request_body.update_value(String::from(""));
                                 }
                             }
+
+                            if active_chunk == 3 && !headers.edit_mode {
+                                headers.toggle_mode();
+                            }
                         }
 
                         if c == 'r'
@@ -357,50 +427,53 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             && !request_type_dropdown.open
                         {
                             let url_path = parse_into_https(&url.value);
+                            let parsed_headers = build_headers(&headers.value).unwrap();
                             let res = match request_type_val.parse::<RequestType>().unwrap() {
-                                RequestType::GET => client.get(url_path).send(),
+                                RequestType::GET => {
+                                    client.get(url_path).headers(parsed_headers).send()
+                                }
                                 RequestType::POST => {
                                     if !request_body.value.contains(placeholder_request_body) {
                                         client
                                             .post(&url_path)
-                                            .header("Content-Type", "application/json")
+                                            .headers(parsed_headers)
                                             .body(request_body.value.clone())
                                             .send()
                                     } else {
-                                        client.post(&url_path).send()
+                                        client.post(&url_path).headers(parsed_headers).send()
                                     }
                                 }
                                 RequestType::PUT => {
                                     if !request_body.value.contains(placeholder_request_body) {
                                         client
                                             .put(&url_path)
-                                            .header("content-type", "application/json")
+                                            .headers(parsed_headers)
                                             .body(request_body.value.clone())
                                             .send()
                                     } else {
-                                        client.put(&url_path).send()
+                                        client.put(&url_path).headers(parsed_headers).send()
                                     }
                                 }
                                 RequestType::PATCH => {
                                     if !request_body.value.contains(placeholder_request_body) {
                                         client
                                             .patch(&url_path)
-                                            .header("content-type", "application/json")
+                                            .headers(parsed_headers)
                                             .body(request_body.value.clone())
                                             .send()
                                     } else {
-                                        client.patch(&url_path).send()
+                                        client.patch(&url_path).headers(parsed_headers).send()
                                     }
                                 }
                                 RequestType::DELETE => {
                                     if !request_body.value.contains(placeholder_request_body) {
                                         client
                                             .delete(&url_path)
-                                            .header("content-type", "application/json")
+                                            .headers(parsed_headers)
                                             .body(request_body.value.clone())
                                             .send()
                                     } else {
-                                        client.delete(&url_path).send()
+                                        client.delete(&url_path).headers(parsed_headers).send()
                                     }
                                 }
                             };
@@ -438,11 +511,15 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                         if request_body.edit_mode {
                             request_body.remove_last_char();
                         }
+
+                        if headers.edit_mode {
+                            headers.remove_last_char();
+                        }
                     }
                     KeyCode::Down | KeyCode::Right => {
                         if request_type_dropdown.open {
                             request_type_dropdown.next();
-                        } else if url.edit_mode || request_body.edit_mode {
+                        } else if url.edit_mode || request_body.edit_mode || headers.edit_mode {
                         } else {
                             active_chunk = cmp::min(active_chunk + 1, chunk_size - 2);
                         }
@@ -450,7 +527,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     KeyCode::Up | KeyCode::Left => {
                         if request_type_dropdown.open {
                             request_type_dropdown.previous();
-                        } else if url.edit_mode || request_body.edit_mode {
+                        } else if url.edit_mode || request_body.edit_mode || headers.edit_mode {
                         } else {
                             active_chunk = if active_chunk == 0 {
                                 0
@@ -473,6 +550,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
                         if request_body.edit_mode {
                             request_body.toggle_mode();
+                        }
+
+                        if headers.edit_mode {
+                            headers.toggle_mode();
                         }
                     }
                     _ => {}

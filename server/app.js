@@ -17,6 +17,7 @@ const server = serve({
       const body = await req.json();
       const bodyJson = JSON.stringify(body);
       console.log(`POST Request Body: ${bodyJson}`);
+      console.log(`POST Request headers: ${JSON.stringify(req.headers)}`);
       if (body.hello === "world") {
         return new Response(
           JSON.stringify({ ...response, message: "Successful POST request" }),
