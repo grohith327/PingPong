@@ -78,10 +78,6 @@ impl DisplayString {
         self.value = value;
     }
 
-    fn insert_char(&mut self, index: usize, ch: char) {
-        self.value.insert(index, ch);
-    }
-
     fn toggle_mode(&mut self) {
         self.edit_mode = !self.edit_mode;
     }
@@ -358,30 +354,54 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             let url_path = parse_into_https(&url.value);
                             let res = match request_type_val.parse::<RequestType>().unwrap() {
                                 RequestType::GET => client.get(url_path).send().unwrap(),
-                                RequestType::POST => client
-                                    .post(url_path)
-                                    .header("Content-Type", "application/json")
-                                    .body(request_body.value.clone())
-                                    .send()
-                                    .unwrap(),
-                                RequestType::PUT => client
-                                    .put(url_path)
-                                    .header("Content-Type", "application/json")
-                                    .body(request_body.value.clone())
-                                    .send()
-                                    .unwrap(),
-                                RequestType::PATCH => client
-                                    .patch(url_path)
-                                    .header("Content-Type", "application/json")
-                                    .body(request_body.value.clone())
-                                    .send()
-                                    .unwrap(),
-                                RequestType::DELETE => client
-                                    .delete(url_path)
-                                    .header("Content-Type", "application/json")
-                                    .body(request_body.value.clone())
-                                    .send()
-                                    .unwrap(),
+                                RequestType::POST => {
+                                    if !request_body.value.contains(placeholder_request_body) {
+                                        client
+                                            .post(&url_path)
+                                            .header("Content-Type", "application/json")
+                                            .body(request_body.value.clone())
+                                            .send()
+                                            .unwrap()
+                                    } else {
+                                        client.post(&url_path).send().unwrap()
+                                    }
+                                }
+                                RequestType::PUT => {
+                                    if !request_body.value.contains(placeholder_request_body) {
+                                        client
+                                            .put(&url_path)
+                                            .header("content-type", "application/json")
+                                            .body(request_body.value.clone())
+                                            .send()
+                                            .unwrap()
+                                    } else {
+                                        client.put(&url_path).send().unwrap()
+                                    }
+                                }
+                                RequestType::PATCH => {
+                                    if !request_body.value.contains(placeholder_request_body) {
+                                        client
+                                            .patch(&url_path)
+                                            .header("content-type", "application/json")
+                                            .body(request_body.value.clone())
+                                            .send()
+                                            .unwrap()
+                                    } else {
+                                        client.patch(&url_path).send().unwrap()
+                                    }
+                                }
+                                RequestType::DELETE => {
+                                    if !request_body.value.contains(placeholder_request_body) {
+                                        client
+                                            .delete(&url_path)
+                                            .header("content-type", "application/json")
+                                            .body(request_body.value.clone())
+                                            .send()
+                                            .unwrap()
+                                    } else {
+                                        client.delete(&url_path).send().unwrap()
+                                    }
+                                }
                             };
 
                             if res.status().is_success() {
