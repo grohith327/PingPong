@@ -78,6 +78,10 @@ impl DisplayString {
         self.value = value;
     }
 
+    fn insert_char(&mut self, index: usize, ch: char) {
+        self.value.insert(index, ch);
+    }
+
     fn toggle_mode(&mut self) {
         self.edit_mode = !self.edit_mode;
     }
