@@ -14,7 +14,7 @@ use std::{
     time::Duration,
 };
 use strum::IntoEnumIterator;
-use strum_macros::{EnumIter, EnumString};
+use strum_macros::{Display, EnumIter, EnumString, FromRepr};
 
 struct Dropdown {
     items: Vec<String>,
@@ -121,6 +121,62 @@ impl fmt::Display for RequestType {
     }
 }
 
+#[derive(Default, Clone, Copy, Display, FromRepr, EnumIter)]
+enum SelectedTab {
+    #[default]
+    #[strum(to_string = "Request/Reply")]
+    RequestReply,
+    #[strum(to_string = "Load Test")]
+    LoadTest,
+}
+
+impl SelectedTab {
+    fn all() -> &'static [SelectedTab] {
+        use SelectedTab::*;
+        &[RequestReply, LoadTest]
+    }
+
+    fn title(self) -> Line<'static> {
+        format!("  {self}  ")
+            .fg(Color::White)
+            .bg(self.palette())
+            .into()
+    }
+
+    fn previous(self) -> Self {
+        let current_index = self as usize;
+        let previous_index = current_index.saturating_sub(1);
+        Self::from_repr(previous_index).unwrap_or(self)
+    }
+
+    fn next(self) -> Self {
+        let current_index = self as usize;
+        let next_index = current_index.saturating_add(1);
+        Self::from_repr(next_index).unwrap_or(self)
+    }
+
+    fn block(self) -> Block<'static> {
+        Block::bordered()
+            .border_set(symbols::border::PROPORTIONAL_TALL)
+            .padding(Padding::horizontal(1))
+            .border_style(self.palette())
+    }
+
+    fn description(self) -> String {
+        match self {
+            SelectedTab::RequestReply => "Send individual requests to your endpoint".to_string(),
+            SelectedTab::LoadTest => "Load test your API".to_string(),
+        }
+    }
+
+    fn palette(self) -> Color {
+        match self {
+            Self::RequestReply => Color::Blue,
+            Self::LoadTest => Color::Red,
+        }
+    }
+}
+
 fn parse_into_https(url: &str) -> String {
     if url.starts_with("http") || url.starts_with("https") {
         return url.to_string();
@@ -173,6 +229,7 @@ struct App {
     request_body: DisplayString,
     headers: DisplayString,
     response: DisplayString,
+    selected_tab: SelectedTab,
     client: Client,
 }
 
@@ -193,6 +250,7 @@ impl App {
             request_body: DisplayString::new(default_request_body.to_string()),
             headers: DisplayString::new(default_headers.to_string()),
             response: DisplayString::new(default_response.to_string()),
+            selected_tab: SelectedTab::RequestReply,
             client: Client::new(),
         }
     }
@@ -405,11 +463,60 @@ impl App {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
+        let titles: Vec<Span> = SelectedTab::all()
+            .iter()
+            .map(|t| {
+                Span::from(Span::styled(
+                    t.to_string(),
+                    Style::default().fg(Color::White),
+                ))
+            })
+            .collect();
+        let highlight_style = (Color::default(), self.selected_tab.palette());
+        let selected_tab_index = self.selected_tab as usize;
+        let tabs = Tabs::new(titles)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Green)
+                    .bg(Color::Black)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .style(Style::default().fg(Color::Gray))
+            .select(selected_tab_index)
+            .padding("", "")
+            .divider(" ");
+        use Constraint::{Length, Min};
+        let vertical = Layout::vertical([Length(1), Min(0), Length(1)]);
+        let [header_area, inner_area, footer_area] = vertical.areas(frame.area());
+
+        let horizontal = Layout::horizontal([Min(0), Length(50)]);
+        let [tabs_area, title_area] = horizontal.areas(header_area);
+        frame.render_widget(self.selected_tab.description().bold(), title_area);
+        frame.render_widget(tabs, tabs_area);
+        match self.selected_tab {
+            SelectedTab::RequestReply => {
+                // let temp = Paragraph::new("Hello, World! - Request/Reply")
+                //     .block(self.selected_tab.block());
+                // frame.render_widget(temp, inner_area);
+
+                self.render_request_reply_tab(frame, inner_area);
+            }
+            SelectedTab::LoadTest => {
+                let temp = Paragraph::new("Load test").block(self.selected_tab.block());
+                frame.render_widget(temp, inner_area);
+            }
+        }
+
+        let footer_widget =
+            Line::raw("[e] Edit [enter] Save/Exit edit mode [r] Request [q] Quit").centered();
+        frame.render_widget(footer_widget, footer_area);
+    }
+
+    fn render_request_reply_tab(&mut self, frame: &mut Frame, area: Rect) {
         let vertical_constraints = [
             Constraint::Percentage(7),
             Constraint::Percentage(45),
             Constraint::Percentage(45),
-            Constraint::Percentage(2),
         ];
 
         let request_horizontal_constraints =
@@ -419,7 +526,7 @@ impl App {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vertical_constraints.as_ref())
-            .split(frame.area());
+            .split(area);
 
         let request_horizontal_chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -490,12 +597,12 @@ impl App {
         );
         frame.render_widget(response_body_block, chunks[2]);
 
-        let status_bar = Paragraph::new(Span::styled(
-            "[e] Edit [enter] Save/Exit edit mode [r] Request [q] Quit",
-            Style::default().bg(Color::Green).fg(Color::Black),
-        ))
-        .block(Block::default().bg(Color::Green).borders(Borders::NONE));
-        frame.render_widget(status_bar, chunks[3]);
+        // let status_bar = Paragraph::new(Span::styled(
+        //     "[e] Edit [enter] Save/Exit edit mode [r] Request [q] Quit",
+        //     Style::default().bg(Color::Green).fg(Color::Black),
+        // ))
+        // .block(Block::default().bg(Color::Green).borders(Borders::NONE));
+        // frame.render_widget(status_bar, chunks[3]);
     }
 }
 
