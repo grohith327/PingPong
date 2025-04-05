@@ -136,13 +136,6 @@ impl SelectedTab {
         &[RequestReply, LoadTest]
     }
 
-    fn title(self) -> Line<'static> {
-        format!("  {self}  ")
-            .fg(Color::White)
-            .bg(self.palette())
-            .into()
-    }
-
     fn previous(self) -> Self {
         let current_index = self as usize;
         let previous_index = current_index.saturating_sub(1);
@@ -273,6 +266,14 @@ impl App {
             if let event::Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char(c) => {
+                        if c == 'h' {
+                            self.selected_tab = self.selected_tab.previous();
+                        }
+
+                        if c == 'l' {
+                            self.selected_tab = self.selected_tab.next();
+                        }
+
                         for display_string in display_strings.iter_mut() {
                             if display_string.edit_mode {
                                 display_string.add_char(c);
@@ -472,7 +473,6 @@ impl App {
                 ))
             })
             .collect();
-        let highlight_style = (Color::default(), self.selected_tab.palette());
         let selected_tab_index = self.selected_tab as usize;
         let tabs = Tabs::new(titles)
             .highlight_style(
@@ -495,10 +495,6 @@ impl App {
         frame.render_widget(tabs, tabs_area);
         match self.selected_tab {
             SelectedTab::RequestReply => {
-                // let temp = Paragraph::new("Hello, World! - Request/Reply")
-                //     .block(self.selected_tab.block());
-                // frame.render_widget(temp, inner_area);
-
                 self.render_request_reply_tab(frame, inner_area);
             }
             SelectedTab::LoadTest => {
@@ -508,7 +504,7 @@ impl App {
         }
 
         let footer_widget =
-            Line::raw("[e] Edit [enter] Save/Exit edit mode [r] Request [q] Quit").centered();
+            Line::raw("[h] Previous tab [l] Next tab [e] Edit [enter] Save/Exit edit mode [r] Request [q] Quit").centered();
         frame.render_widget(footer_widget, footer_area);
     }
 
@@ -596,13 +592,6 @@ impl App {
             self.active_block == 4,
         );
         frame.render_widget(response_body_block, chunks[2]);
-
-        // let status_bar = Paragraph::new(Span::styled(
-        //     "[e] Edit [enter] Save/Exit edit mode [r] Request [q] Quit",
-        //     Style::default().bg(Color::Green).fg(Color::Black),
-        // ))
-        // .block(Block::default().bg(Color::Green).borders(Borders::NONE));
-        // frame.render_widget(status_bar, chunks[3]);
     }
 }
 
