@@ -11,10 +11,16 @@ use std::{
     fmt::{self},
     io,
     str::FromStr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread::sleep,
     time::Duration,
 };
 use strum::IntoEnumIterator;
 use strum_macros::{Display, EnumIter, EnumString, FromRepr};
+use tokio::{runtime::Runtime, time::Instant};
 
 struct Dropdown {
     items: Vec<String>,
@@ -121,7 +127,7 @@ impl fmt::Display for RequestType {
     }
 }
 
-#[derive(Default, Clone, Copy, Display, FromRepr, EnumIter)]
+#[derive(Default, Clone, Copy, Display, FromRepr, EnumIter, PartialEq)]
 enum SelectedTab {
     #[default]
     #[strum(to_string = "Request/Reply")]
@@ -148,24 +154,10 @@ impl SelectedTab {
         Self::from_repr(next_index).unwrap_or(self)
     }
 
-    fn block(self) -> Block<'static> {
-        Block::bordered()
-            .border_set(symbols::border::PROPORTIONAL_TALL)
-            .padding(Padding::horizontal(1))
-            .border_style(self.palette())
-    }
-
     fn description(self) -> String {
         match self {
             SelectedTab::RequestReply => "Send individual requests to your endpoint".to_string(),
             SelectedTab::LoadTest => "Load test your API".to_string(),
-        }
-    }
-
-    fn palette(self) -> Color {
-        match self {
-            Self::RequestReply => Color::Blue,
-            Self::LoadTest => Color::Red,
         }
     }
 }
@@ -223,6 +215,8 @@ struct App {
     headers: DisplayString,
     response: DisplayString,
     selected_tab: SelectedTab,
+    load_test_url: DisplayString,
+    load_test_result: DisplayString,
     client: Client,
 }
 
@@ -244,6 +238,8 @@ impl App {
             headers: DisplayString::new(default_headers.to_string()),
             response: DisplayString::new(default_response.to_string()),
             selected_tab: SelectedTab::RequestReply,
+            load_test_url: DisplayString::new("".to_string()),
+            load_test_result: DisplayString::new("".to_string()),
             client: Client::new(),
         }
     }
@@ -258,6 +254,11 @@ impl App {
 
     fn handle_events(&mut self) -> io::Result<()> {
         if event::poll(Duration::from_millis(100))? {
+            let any_block_in_edit_mode = self.request_body.edit_mode.clone()
+                || self.request_url.edit_mode.clone()
+                || self.headers.edit_mode.clone()
+                || self.load_test_url.edit_mode.clone();
+
             let mut display_strings = vec![
                 &mut self.request_url,
                 &mut self.request_body,
@@ -266,153 +267,183 @@ impl App {
             if let event::Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char(c) => {
-                        if c == 'h' {
+                        if c == 'h' && !any_block_in_edit_mode {
                             self.selected_tab = self.selected_tab.previous();
                         }
 
-                        if c == 'l' {
+                        if c == 'l' && !any_block_in_edit_mode {
                             self.selected_tab = self.selected_tab.next();
                         }
 
-                        for display_string in display_strings.iter_mut() {
-                            if display_string.edit_mode {
-                                display_string.add_char(c);
-                                break;
-                            }
+                        if c == 'q' && !any_block_in_edit_mode {
+                            self.should_exit = true;
                         }
 
-                        if c == 'e' {
-                            if self.active_block == 0 {
-                                self.request_type.toggle()
+                        if self.selected_tab == SelectedTab::LoadTest {
+                            if self.load_test_url.edit_mode {
+                                self.load_test_url.add_char(c);
                             }
 
-                            if self.active_block == 1 && !self.request_url.edit_mode {
-                                self.request_url.toggle_mode();
-                                if self.request_url.value == PLACEHOLDER_URL_VALUE.to_string() {
-                                    self.request_url.update_value(String::from(""));
+                            if c == 'e' {
+                                self.load_test_url.toggle_mode();
+                            }
+                        } else {
+                            for display_string in display_strings.iter_mut() {
+                                if display_string.edit_mode {
+                                    display_string.add_char(c);
+                                    break;
                                 }
                             }
 
-                            if self.active_block == 2 && !self.request_body.edit_mode {
-                                self.request_body.toggle_mode();
-                                if self.request_body.value == PLACEHOLDER_REQUEST_BODY.to_string() {
-                                    self.request_body.update_value(String::from(""));
+                            if c == 'e' {
+                                if self.active_block == 0 {
+                                    self.request_type.toggle()
+                                }
+
+                                if self.active_block == 1 && !self.request_url.edit_mode {
+                                    self.request_url.toggle_mode();
+                                    if self.request_url.value == PLACEHOLDER_URL_VALUE.to_string() {
+                                        self.request_url.update_value(String::from(""));
+                                    }
+                                }
+
+                                if self.active_block == 2 && !self.request_body.edit_mode {
+                                    self.request_body.toggle_mode();
+                                    if self.request_body.value
+                                        == PLACEHOLDER_REQUEST_BODY.to_string()
+                                    {
+                                        self.request_body.update_value(String::from(""));
+                                    }
+                                }
+
+                                if self.active_block == 3 && !self.headers.edit_mode {
+                                    self.headers.toggle_mode();
                                 }
                             }
 
-                            if self.active_block == 3 && !self.headers.edit_mode {
-                                self.headers.toggle_mode();
-                            }
-                        }
-
-                        if c == 'r'
-                            && !self.request_url.edit_mode
-                            && !self.request_body.edit_mode
-                            && !self.request_type.open
-                        {
-                            let url_path = parse_into_https(&self.request_url.value);
-                            let parsed_headers = build_headers(&self.headers.value).unwrap();
-                            let res = match self
-                                .request_type
-                                .get_selected_value()
-                                .parse::<RequestType>()
-                                .unwrap()
+                            if c == 'r'
+                                && !self.request_url.edit_mode
+                                && !self.request_body.edit_mode
+                                && !self.request_type.open
                             {
-                                RequestType::GET => {
-                                    self.client.get(url_path).headers(parsed_headers).send()
-                                }
-                                RequestType::POST => {
-                                    if !self
-                                        .request_body
-                                        .value
-                                        .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
-                                    {
-                                        self.client
-                                            .post(&url_path)
-                                            .headers(parsed_headers)
-                                            .body(self.request_body.value.clone())
-                                            .send()
-                                    } else {
-                                        self.client.post(&url_path).headers(parsed_headers).send()
+                                let url_path = parse_into_https(&self.request_url.value);
+                                let parsed_headers = build_headers(&self.headers.value).unwrap();
+                                let res = match self
+                                    .request_type
+                                    .get_selected_value()
+                                    .parse::<RequestType>()
+                                    .unwrap()
+                                {
+                                    RequestType::GET => {
+                                        self.client.get(url_path).headers(parsed_headers).send()
                                     }
-                                }
-                                RequestType::PUT => {
-                                    if !self
-                                        .request_body
-                                        .value
-                                        .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
-                                    {
-                                        self.client
-                                            .put(&url_path)
-                                            .headers(parsed_headers)
-                                            .body(self.request_body.value.clone())
-                                            .send()
-                                    } else {
-                                        self.client.put(&url_path).headers(parsed_headers).send()
+                                    RequestType::POST => {
+                                        if !self
+                                            .request_body
+                                            .value
+                                            .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
+                                        {
+                                            self.client
+                                                .post(&url_path)
+                                                .headers(parsed_headers)
+                                                .body(self.request_body.value.clone())
+                                                .send()
+                                        } else {
+                                            self.client
+                                                .post(&url_path)
+                                                .headers(parsed_headers)
+                                                .send()
+                                        }
                                     }
-                                }
-                                RequestType::PATCH => {
-                                    if !self
-                                        .request_body
-                                        .value
-                                        .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
-                                    {
-                                        self.client
-                                            .patch(&url_path)
-                                            .headers(parsed_headers)
-                                            .body(self.request_body.value.clone())
-                                            .send()
-                                    } else {
-                                        self.client.patch(&url_path).headers(parsed_headers).send()
+                                    RequestType::PUT => {
+                                        if !self
+                                            .request_body
+                                            .value
+                                            .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
+                                        {
+                                            self.client
+                                                .put(&url_path)
+                                                .headers(parsed_headers)
+                                                .body(self.request_body.value.clone())
+                                                .send()
+                                        } else {
+                                            self.client
+                                                .put(&url_path)
+                                                .headers(parsed_headers)
+                                                .send()
+                                        }
                                     }
-                                }
-                                RequestType::DELETE => {
-                                    if !self
-                                        .request_body
-                                        .value
-                                        .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
-                                    {
-                                        self.client
-                                            .delete(&url_path)
-                                            .headers(parsed_headers)
-                                            .body(self.request_body.value.clone())
-                                            .send()
-                                    } else {
-                                        self.client.delete(&url_path).headers(parsed_headers).send()
+                                    RequestType::PATCH => {
+                                        if !self
+                                            .request_body
+                                            .value
+                                            .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
+                                        {
+                                            self.client
+                                                .patch(&url_path)
+                                                .headers(parsed_headers)
+                                                .body(self.request_body.value.clone())
+                                                .send()
+                                        } else {
+                                            self.client
+                                                .patch(&url_path)
+                                                .headers(parsed_headers)
+                                                .send()
+                                        }
                                     }
-                                }
-                            };
+                                    RequestType::DELETE => {
+                                        if !self
+                                            .request_body
+                                            .value
+                                            .contains(&PLACEHOLDER_REQUEST_BODY.to_string())
+                                        {
+                                            self.client
+                                                .delete(&url_path)
+                                                .headers(parsed_headers)
+                                                .body(self.request_body.value.clone())
+                                                .send()
+                                        } else {
+                                            self.client
+                                                .delete(&url_path)
+                                                .headers(parsed_headers)
+                                                .send()
+                                        }
+                                    }
+                                };
 
-                            match res {
-                                Ok(output) => {
-                                    if output.status().is_success() {
-                                        self.response.update_value(output.text().unwrap());
-                                    } else {
+                                match res {
+                                    Ok(output) => {
+                                        if output.status().is_success() {
+                                            self.response.update_value(output.text().unwrap());
+                                        } else {
+                                            self.response.update_value(format!(
+                                                "Status code: {}, Error message: {}",
+                                                output.status(),
+                                                output.text().unwrap_or_else(|_| {
+                                                    "No response body".to_string()
+                                                }),
+                                            ));
+                                        }
+                                    }
+                                    Err(e) => {
                                         self.response.update_value(format!(
-                                            "Status code: {}, Error message: {}",
-                                            output.status(),
-                                            output
-                                                .text()
-                                                .unwrap_or_else(|_| "No response body".to_string()),
+                                            "Error while making request: {}",
+                                            e
                                         ));
                                     }
                                 }
-                                Err(e) => {
-                                    self.response
-                                        .update_value(format!("Error while making request: {}", e));
-                                }
                             }
-                        }
-
-                        if c == 'q' {
-                            self.should_exit = true;
                         }
                     }
                     KeyCode::Backspace => {
-                        for display_string in display_strings.iter_mut() {
-                            if display_string.edit_mode {
-                                display_string.remove_last_char();
-                                break;
+                        if self.selected_tab == SelectedTab::LoadTest {
+                            self.load_test_url.remove_last_char();
+                        } else {
+                            for display_string in display_strings.iter_mut() {
+                                if display_string.edit_mode {
+                                    display_string.remove_last_char();
+                                    break;
+                                }
                             }
                         }
                     }
@@ -444,14 +475,18 @@ impl App {
                         }
                     }
                     KeyCode::Enter | KeyCode::Esc => {
-                        if self.request_type.open {
-                            self.request_type.toggle();
-                        }
+                        if self.selected_tab == SelectedTab::LoadTest {
+                            self.load_test_url.toggle_mode();
+                        } else {
+                            if self.request_type.open {
+                                self.request_type.toggle();
+                            }
 
-                        for display_string in display_strings.iter_mut() {
-                            if display_string.edit_mode {
-                                display_string.toggle_mode();
-                                break;
+                            for display_string in display_strings.iter_mut() {
+                                if display_string.edit_mode {
+                                    display_string.toggle_mode();
+                                    break;
+                                }
                             }
                         }
                     }
@@ -498,8 +533,8 @@ impl App {
                 self.render_request_reply_tab(frame, inner_area);
             }
             SelectedTab::LoadTest => {
-                let temp = Paragraph::new("Load test").block(self.selected_tab.block());
-                frame.render_widget(temp, inner_area);
+                self.render_load_test_tab(frame, inner_area);
+                // self.run_load_test();
             }
         }
 
@@ -592,6 +627,102 @@ impl App {
             self.active_block == 4,
         );
         frame.render_widget(response_body_block, chunks[2]);
+    }
+
+    fn render_load_test_tab(&mut self, frame: &mut Frame, area: Rect) {
+        let vertical_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(10),
+                Constraint::Max(4),
+                Constraint::Min(30),
+                Constraint::Percentage(10),
+            ])
+            .split(area);
+
+        let url = generate_paragraph(&self.load_test_url, "Load test url".to_string(), true);
+        let result = Paragraph::new(self.load_test_result.value.to_string())
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Load test result")
+                    .title_style(
+                        Style::default()
+                            .fg(Color::LightYellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+            );
+
+        frame.render_widget(url, vertical_chunks[1]);
+        frame.render_widget(result, vertical_chunks[2]);
+    }
+
+    fn run_load_test(&self) {
+        let runtime = Runtime::new().unwrap();
+        let mut tps = 10;
+
+        loop {
+            let success_count = Arc::new(AtomicUsize::new(0));
+            let failure_count = Arc::new(AtomicUsize::new(0));
+            let duration = Duration::from_secs(10);
+            let failure_threshold = 20.0;
+
+            runtime.block_on(async {
+                let mut tasks = Vec::with_capacity(tps);
+                let start_time = Instant::now();
+
+                while Instant::now() - start_time < duration {
+                    for _ in 0..tps {
+                        let client_clone = Arc::new(reqwest::Client::new()); // Need a non-blocking client
+                        let endpoint_clone = self.load_test_url.value.clone();
+                        let success_count_clone = success_count.clone();
+                        let failure_count_clone = failure_count.clone();
+
+                        tasks.push(tokio::spawn(async move {
+                            let result = client_clone.get(endpoint_clone).send().await;
+
+                            match result {
+                                Ok(response) => {
+                                    if response.status().is_success() {
+                                        success_count_clone.fetch_add(1, Ordering::SeqCst);
+                                    } else {
+                                        failure_count_clone.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                }
+                                _ => {
+                                    failure_count_clone.fetch_add(1, Ordering::SeqCst);
+                                }
+                            }
+                        }));
+                    }
+
+                    sleep(Duration::from_secs(1));
+                    tasks.retain(|task| !task.is_finished());
+                }
+
+                futures::future::join_all(tasks).await;
+            });
+
+            let successes = success_count.load(Ordering::SeqCst);
+            let failures = failure_count.load(Ordering::SeqCst);
+            let total = successes + failures;
+            let failure_rate = failures as f64 / total as f64 * 100.0;
+
+            println!("TPS: {}, Failure rate: {:.2}%", tps, failure_rate);
+
+            if failure_rate > failure_threshold {
+                println!(
+                    "Breaking point reached! Failure rate exceeds {}% at {} TPS.",
+                    failure_threshold, tps
+                );
+                break;
+            }
+
+            tps += 10;
+            sleep(Duration::from_secs(10));
+        }
     }
 }
 
