@@ -12,7 +12,7 @@ use std::{
     io,
     str::FromStr,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     thread::sleep,
@@ -220,7 +220,7 @@ struct App {
     response: DisplayString,
     selected_tab: SelectedTab,
     load_test_url: DisplayString,
-    load_test_result: DisplayString,
+    load_test_result: Arc<Mutex<DisplayString>>,
     client: Client,
 }
 
@@ -243,7 +243,7 @@ impl App {
             response: DisplayString::new(default_response.to_string()),
             selected_tab: SelectedTab::RequestReply,
             load_test_url: DisplayString::new("".to_string()),
-            load_test_result: DisplayString::new("".to_string()),
+            load_test_result: Arc::new(Mutex::new(DisplayString::new("".to_string()))),
             client: Client::new(),
         }
     }
@@ -293,7 +293,9 @@ impl App {
                             }
 
                             if c == 'r' && !self.load_test_url.edit_mode {
-                                self.run_load_test();
+                                let url = self.load_test_url.clone();
+                                let parsed_url = parse_into_https(&url.value);
+                                App::run_load_test(parsed_url, self.load_test_result.clone());
                             }
                         } else {
                             for display_string in display_strings.iter_mut() {
@@ -648,7 +650,9 @@ impl App {
             .split(area);
 
         let url = generate_paragraph(&self.load_test_url, "Load test url".to_string(), true);
-        let result = Paragraph::new(self.load_test_result.value.to_string())
+        let load_test_result_clone = self.load_test_result.clone();
+        let load_test_result_clone_lock = load_test_result_clone.lock().unwrap();
+        let result = Paragraph::new(load_test_result_clone_lock.value.to_string())
             .style(Style::default().fg(Color::White))
             .alignment(Alignment::Center)
             .block(
@@ -661,80 +665,85 @@ impl App {
                             .add_modifier(Modifier::BOLD),
                     ),
             );
+        drop(load_test_result_clone_lock);
 
         frame.render_widget(url, vertical_chunks[1]);
         frame.render_widget(result, vertical_chunks[2]);
     }
 
-    fn run_load_test(&mut self) {
-        let runtime = Runtime::new().unwrap();
-        let mut tps = 10;
-        self.load_test_result
-            .append_string("Running load test...".to_string());
+    fn run_load_test(url: String, result: Arc<Mutex<DisplayString>>) {
+        std::thread::spawn(move || {
+            let runtime = Runtime::new().unwrap();
+            let mut tps = 10;
+            let mut result_lock = result.lock().unwrap();
+            result_lock.append_string("Running load test...".to_string());
+            drop(result_lock);
 
-        loop {
-            let success_count = Arc::new(AtomicUsize::new(0));
-            let failure_count = Arc::new(AtomicUsize::new(0));
-            let duration = Duration::from_secs(10);
-            let failure_threshold = 20.0;
+            loop {
+                let success_count = Arc::new(AtomicUsize::new(0));
+                let failure_count = Arc::new(AtomicUsize::new(0));
+                let duration = Duration::from_secs(10);
+                let failure_threshold = 20.0;
 
-            runtime.block_on(async {
-                let mut tasks = Vec::with_capacity(tps);
-                let start_time = Instant::now();
+                runtime.block_on(async {
+                    let mut tasks = Vec::with_capacity(tps);
+                    let start_time = Instant::now();
 
-                while Instant::now() - start_time < duration {
-                    for _ in 0..tps {
-                        let client_clone = Arc::new(reqwest::Client::new()); // Need a non-blocking client
-                        let endpoint_clone = self.load_test_url.value.clone();
-                        let success_count_clone = success_count.clone();
-                        let failure_count_clone = failure_count.clone();
+                    while Instant::now() - start_time < duration {
+                        for _ in 0..tps {
+                            let client_clone = Arc::new(reqwest::Client::new()); // Need a non-blocking client
+                            let endpoint_clone = url.clone();
+                            let success_count_clone = success_count.clone();
+                            let failure_count_clone = failure_count.clone();
 
-                        tasks.push(tokio::spawn(async move {
-                            let result = client_clone.get(endpoint_clone).send().await;
+                            tasks.push(tokio::spawn(async move {
+                                let result = client_clone.get(endpoint_clone).send().await;
 
-                            match result {
-                                Ok(response) => {
-                                    if response.status().is_success() {
-                                        success_count_clone.fetch_add(1, Ordering::SeqCst);
-                                    } else {
+                                match result {
+                                    Ok(response) => {
+                                        if response.status().is_success() {
+                                            success_count_clone.fetch_add(1, Ordering::SeqCst);
+                                        } else {
+                                            failure_count_clone.fetch_add(1, Ordering::SeqCst);
+                                        }
+                                    }
+                                    _ => {
                                         failure_count_clone.fetch_add(1, Ordering::SeqCst);
                                     }
                                 }
-                                _ => {
-                                    failure_count_clone.fetch_add(1, Ordering::SeqCst);
-                                }
-                            }
-                        }));
+                            }));
+                        }
+
+                        sleep(Duration::from_secs(1));
+                        tasks.retain(|task| !task.is_finished());
                     }
 
-                    sleep(Duration::from_secs(1));
-                    tasks.retain(|task| !task.is_finished());
+                    futures::future::join_all(tasks).await;
+                });
+
+                let successes = success_count.load(Ordering::SeqCst);
+                let failures = failure_count.load(Ordering::SeqCst);
+                let total = successes + failures;
+                let failure_rate = failures as f64 / total as f64 * 100.0;
+
+                let mut result_lock = result.lock().unwrap();
+                result_lock
+                    .append_string(format!("TPS: {}, Failure rate: {:.2}%", tps, failure_rate));
+
+                if failure_rate > failure_threshold {
+                    result_lock.append_string(format!(
+                        "Breaking point reached! Failure rate exceeds {}% at {} TPS.",
+                        failure_threshold, tps
+                    ));
+                    result_lock.append_string("Completed load test".to_string());
+                    break;
                 }
 
-                futures::future::join_all(tasks).await;
-            });
-
-            let successes = success_count.load(Ordering::SeqCst);
-            let failures = failure_count.load(Ordering::SeqCst);
-            let total = successes + failures;
-            let failure_rate = failures as f64 / total as f64 * 100.0;
-
-            self.load_test_result
-                .append_string(format!("TPS: {}, Failure rate: {:.2}%", tps, failure_rate));
-
-            if failure_rate > failure_threshold {
-                self.load_test_result.append_string(format!(
-                    "Breaking point reached! Failure rate exceeds {}% at {} TPS.",
-                    failure_threshold, tps
-                ));
-                self.load_test_result
-                    .append_string("Completed load test".to_string());
-                break;
+                drop(result_lock);
+                tps += 10;
+                sleep(Duration::from_secs(5));
             }
-
-            tps += 10;
-            sleep(Duration::from_secs(5));
-        }
+        });
     }
 }
 
