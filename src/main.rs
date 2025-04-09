@@ -103,6 +103,10 @@ impl DisplayString {
     fn toggle_mode(&mut self) {
         self.edit_mode = !self.edit_mode;
     }
+
+    fn append_string(&mut self, value: String) {
+        self.value = format!("{}\n{}", self.value, value);
+    }
 }
 
 #[derive(EnumIter, EnumString)]
@@ -284,8 +288,12 @@ impl App {
                                 self.load_test_url.add_char(c);
                             }
 
-                            if c == 'e' {
+                            if c == 'e' && !self.load_test_url.edit_mode {
                                 self.load_test_url.toggle_mode();
+                            }
+
+                            if c == 'r' && !self.load_test_url.edit_mode {
+                                self.run_load_test();
                             }
                         } else {
                             for display_string in display_strings.iter_mut() {
@@ -534,7 +542,6 @@ impl App {
             }
             SelectedTab::LoadTest => {
                 self.render_load_test_tab(frame, inner_area);
-                // self.run_load_test();
             }
         }
 
@@ -659,9 +666,11 @@ impl App {
         frame.render_widget(result, vertical_chunks[2]);
     }
 
-    fn run_load_test(&self) {
+    fn run_load_test(&mut self) {
         let runtime = Runtime::new().unwrap();
         let mut tps = 10;
+        self.load_test_result
+            .append_string("Running load test...".to_string());
 
         loop {
             let success_count = Arc::new(AtomicUsize::new(0));
@@ -710,18 +719,21 @@ impl App {
             let total = successes + failures;
             let failure_rate = failures as f64 / total as f64 * 100.0;
 
-            println!("TPS: {}, Failure rate: {:.2}%", tps, failure_rate);
+            self.load_test_result
+                .append_string(format!("TPS: {}, Failure rate: {:.2}%", tps, failure_rate));
 
             if failure_rate > failure_threshold {
-                println!(
+                self.load_test_result.append_string(format!(
                     "Breaking point reached! Failure rate exceeds {}% at {} TPS.",
                     failure_threshold, tps
-                );
+                ));
+                self.load_test_result
+                    .append_string("Completed load test".to_string());
                 break;
             }
 
             tps += 10;
-            sleep(Duration::from_secs(10));
+            sleep(Duration::from_secs(5));
         }
     }
 }
