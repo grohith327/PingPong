@@ -1,5 +1,9 @@
 import { serve } from "bun";
 
+// Added for demo purpose
+const allowed_requests_count = 100;
+let req_count = 0;
+
 const server = serve({
   port: 3000,
   fetch: async (req) => {
@@ -7,6 +11,11 @@ const server = serve({
       ping: "pong",
     };
     if (req.method == "GET") {
+      if (req_count > allowed_requests_count) {
+        return new Response("Too many requests", {status: 429});
+      }
+
+      req_count++;
       return new Response(
         JSON.stringify({ ...response, message: "Successful GET request" }),
         { status: 200 },
