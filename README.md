@@ -16,4 +16,4 @@ This should spin up the UI
 
 There is a sample bun server included that you can use to test the UI. Checkout the recording below.
 
-![](assets/ping_pong_demo.mov)
+![Ping Pong Demo](assets/ping_pong_demo.mov)
