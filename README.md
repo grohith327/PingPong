@@ -16,4 +16,6 @@ This should spin up the UI
 
 There is a sample bun server included that you can use to test the UI. Checkout the recording below.
 
-![Ping Pong Demo](assets/ping_pong_demo.mov)
+<video width="320" height="240" controls>
+  <source src="https://github.com/grohith327/PingPong/blob/main/assets/ping_pong_demo.mov" type="video/mp4">
+</video>
