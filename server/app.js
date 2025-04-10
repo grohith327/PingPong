@@ -12,9 +12,11 @@ const server = serve({
     };
     if (req.method == "GET") {
       if (req_count > allowed_requests_count) {
+        console.log("Too many GET requests");
         return new Response("Too many requests", {status: 429});
       }
 
+      console.log("Successful GET request");
       req_count++;
       return new Response(
         JSON.stringify({ ...response, message: "Successful GET request" }),

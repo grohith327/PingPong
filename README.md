@@ -17,5 +17,5 @@ This should spin up the UI
 There is a sample bun server included that you can use to test the UI. Checkout the [recording](https://youtu.be/0Ur63GeguCs)
 
 <p align="center">
-    <img src="assets/ping_pong_demo.gif" width="800" alt="PingPong UI Demo">
+    <img src="assets/pingpong_demo.gif" width="1200" alt="PingPong UI Demo">
 </p>
