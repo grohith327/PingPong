@@ -7,7 +7,9 @@ PingPong allows you to perform API requests directly from terminal through an UI
 You can run PingPong through [Cargo command](https://rustup.rs/) and then simply run the following command:
 
 ```sh
-cargo run
+$ git clone https://github.com/grohith327/PingPong.git
+$ cd PingPong
+$ cargo run
 ```
 
 This should spin up the UI
